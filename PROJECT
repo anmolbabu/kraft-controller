@@ -7,11 +7,14 @@ plugins:
 projectName: kraft-controller
 repo: github.com/anmolbabu/kraft-controller
 resources:
-- controller: true
-  group: core
-  kind: Deployment
-  path: k8s.io/api/core/v1
-  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: flipper.io
+  group: flipper
+  kind: Flipper
+  path: github.com/anmolbabu/kraft-controller/api/v1alpha1
+  version: v1alpha1
 - controller: true
   group: apps
   kind: Deployment

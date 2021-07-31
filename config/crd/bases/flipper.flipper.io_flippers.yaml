@@ -1,0 +1,71 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.1
+  creationTimestamp: null
+  name: flippers.flipper.flipper.io
+spec:
+  group: flipper.flipper.io
+  names:
+    kind: Flipper
+    listKind: FlipperList
+    plural: flippers
+    singular: flipper
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Flipper is the Schema for the flippers API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: FlipperSpec defines the desired state of Flipper
+            properties:
+              foo:
+                description: Foo is an example field of Flipper. Edit flipper_types.go
+                  to remove/update
+                type: string
+              match:
+                properties:
+                  labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  namespace:
+                    type: string
+                required:
+                - labels
+                - namespace
+                type: object
+            required:
+            - match
+            type: object
+          status:
+            description: FlipperStatus defines the observed state of Flipper
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

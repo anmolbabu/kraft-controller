@@ -18,6 +18,10 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"github.com/anmolbabu/kraft-controller/models"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +34,8 @@ import (
 type DeploymentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	config *models.Config
+	Deployments map[string]appsv1.Deployment
 }
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
@@ -46,15 +52,51 @@ type DeploymentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.9.2/pkg/reconcile
 func (r *DeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// your logic here
+	logger.V(2).Info("processing: %#+v", req)
+
+	deplInChange := &appsv1.Deployment{}
+	err := r.Get(ctx, req.NamespacedName, deplInChange)
+	if err != nil {
+		logger.Error(err, "failed to fetch deployment with name: %s", req.NamespacedName)
+		return ctrl.Result{}, err
+	}
+
+	deploymentJSON, err := json.Marshal(*deplInChange)
+	sum := sha256.Sum256([]byte(deploymentJSON))
+
+	patch := client.MergeFrom(deplInChange.DeepCopy())
+
+	annotations := deplInChange.Spec.Template.ObjectMeta.Annotations
+	if annotations == nil {
+		annotations = map[string]string{"updatedHash": string(sum[:])}
+	}
+
+	deplInChange.Spec.Template.ObjectMeta.Annotations = annotations
+
+	err = r.Patch(ctx, deplInChange, patch)
+	if err != nil {
+		logger.Error(err, "failed to restart the deployment")
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	deploymentsList := &appsv1.DeploymentList{}
+	err := r.List(context.Background(), deploymentsList)
+	if err != nil {
+		return err
+	}
+
+	for idx := 0; idx < len(deploymentsList.Items); idx++ {
+		r.Deployments[fmt.Sprintf("%s.%s", deploymentsList.Items[idx].Namespace, deploymentsList.Items[idx].Name)] = deploymentsList.Items[idx]
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}).
 		Complete(r)

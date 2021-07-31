@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	appsv1 "k8s.io/api/apps/v1"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	flipperv1alpha1 "github.com/anmolbabu/kraft-controller/api/v1alpha1"
 	"github.com/anmolbabu/kraft-controller/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -43,6 +45,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(flipperv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -76,16 +79,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	deployments := make(map[string]appsv1.Deployment)
+
 	if err = (&controllers.DeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Deployment")
-		os.Exit(1)
-	}
-	if err = (&controllers.DeploymentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Deployments: deployments,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deployment")
 		os.Exit(1)
@@ -100,6 +99,9 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+
+
+	go controllers.TimeTicker{Deployments: &deployments, Client: mgr.GetClient()}.Run()
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

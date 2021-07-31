@@ -1,0 +1,24 @@
+# permissions for end users to edit flippers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flipper-editor-role
+rules:
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - flippers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - flippers/status
+  verbs:
+  - get
