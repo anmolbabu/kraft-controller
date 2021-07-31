@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
-
+	"fmt"
+	"github.com/anmolbabu/kraft-controller/clients"
+	"github.com/anmolbabu/kraft-controller/models"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,8 +30,17 @@ import (
 
 // DeploymentReconciler reconciles a Deployment object
 type DeploymentReconciler struct {
+	Clients *clients.KraftClients
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	deploymentChgs chan models.DeploymentAction
+}
+
+func NewDeploymentReconciler(kraftClients *clients.KraftClients, scheme *runtime.Scheme) *DeploymentReconciler {
+	return &DeploymentReconciler{
+		Clients: kraftClients,
+		Scheme:  scheme,
+	}
 }
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
@@ -46,16 +57,41 @@ type DeploymentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.9.2/pkg/reconcile
 func (r *DeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// your logic here
+	logger.V(2).Info("processing: %#+v", req)
+
+	deplInChange := &appsv1.Deployment{}
+	err := r.Get(ctx, req.NamespacedName, deplInChange)
+	if err != nil {
+		logger.Error(err, "failed to fetch deployment with name: %s", req.NamespacedName)
+
+		r.deploymentChgs <- models.DeploymentAction{ActionType: models.Deleted, DeplInChg: appsv1.Deployment{}, NamespacedName: req.NamespacedName}
+
+		return ctrl.Result{}, err
+	}
+
+	r.deploymentChgs <- models.DeploymentAction{ActionType: models.Updated, DeplInChg: *deplInChange, NamespacedName: req.NamespacedName}
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+func (r *DeploymentReconciler) SetupWithManager(mgr ctrl.Manager) (models.Deployments, error) {
+	deploymentsList := &appsv1.DeploymentList{}
+	err := r.List(context.Background(), deploymentsList)
+	if err != nil {
+		return models.Deployments{}, err
+	}
+
+	deployments := make(map[string]appsv1.Deployment)
+
+	for idx := 0; idx < len(deploymentsList.Items); idx++ {
+		(deployments)[fmt.Sprintf("%s.%s", deploymentsList.Items[idx].Namespace, deploymentsList.Items[idx].Name)] = deploymentsList.Items[idx]
+	}
+
+	return models.NewDeployments(deploymentsList.Items, r.deploymentChgs), ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}).
 		Complete(r)
 }
