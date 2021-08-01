@@ -32,3 +32,55 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flipper
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flipper/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flipper/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flippers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flippers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - flipper.flipper.io
+  resources:
+  - Flippers/status
+  verbs:
+  - get
+  - patch
+  - update

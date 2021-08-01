@@ -31,6 +31,9 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
+        volumeMounts:
+          - mountPath: /etc/config
+            name: controller-manager-config
         securityContext:
           allowPrivilegeEscalation: false
         livenessProbe:
@@ -52,5 +55,10 @@ spec:
           requests:
             cpu: 100m
             memory: 20Mi
+      volumes:
+        - name: controller-manager-config
+          configMap:
+            name: controller-manager-config
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
+

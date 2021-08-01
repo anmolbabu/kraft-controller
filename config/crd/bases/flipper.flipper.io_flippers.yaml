@@ -36,7 +36,7 @@ spec:
           spec:
             description: FlipperSpec defines the desired state of Flipper
             properties:
-              foo:
+              interval:
                 description: Foo is an example field of Flipper. Edit flipper_types.go
                   to remove/update
                 type: string

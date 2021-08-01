@@ -2,10 +2,10 @@ apiVersion: flipper.flipper.io/v1alpha1
 kind: Flipper
 metadata:
   name: service-mesh-flipper
-  namespace: flipper
+  namespace: kraft-controller-system
 spec:
-  interval: 12h
+  interval: 5m
   match:
     labels:
       mesh: "true"
-    namespace: "mesh"
+    namespace: kraft-controller-system

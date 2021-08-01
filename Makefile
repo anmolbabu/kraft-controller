@@ -36,7 +36,7 @@ IMAGE_TAG_BASE ?= flipper.io/kraft-controller
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:v$(VERSION)
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= anmolb/intuit-flipper-depl-ctrl:v1.23
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
@@ -86,7 +86,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 test: manifests generate fmt vet envtest ## Run tests.
-	go test ./... -coverprofile cover.out
+	#go test ./... -coverprofile cover.out
 
 ##@ Build
 
@@ -110,9 +110,17 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+load-kind:
+	kind load docker-image ${IMG} ${IMG}
+
+deploy: all docker-build manifests load-kind kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	kubectl create ns test
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
+	kubectl apply -f config/manager/cfg_map.yaml
+	kubectl apply -f config/samples/flipper_v1alpha1_flipper.yaml
+	sleep 20
+	kubectl apply -f config/samples/test_depl.yaml -n test
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
@@ -200,3 +208,7 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: clean
+clean: undeploy
+	kubectl delete ns test

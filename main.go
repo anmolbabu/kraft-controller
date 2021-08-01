@@ -18,10 +18,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/anmolbabu/kraft-controller/clients"
 	"github.com/anmolbabu/kraft-controller/models"
 	"os"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -57,6 +57,7 @@ func main() {
 	cfgChan := make(chan models.FlipperChange)
 	stopFlipperChan := make(chan struct{})
 	stopTimeTickrChan := make(chan struct{})
+	deplChan := make(chan models.DeploymentAction)
 
 	defer func() {
 		stopFlipperChan <- struct{}{}
@@ -65,6 +66,7 @@ func main() {
 		close(cfgChan)
 		close(stopFlipperChan)
 		close(stopTimeTickrChan)
+		close(deplChan)
 	}()
 
 	var probeAddr string
@@ -81,6 +83,13 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	cfg, err := models.NewConfigFromFile()
+	if err != nil {
+		setupLog.Error(err, "unable to read config")
+		os.Exit(1)
+	}
+
+	setupLog.Info("setting up controller")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     metricsAddr,
@@ -94,33 +103,60 @@ func main() {
 		os.Exit(1)
 	}
 
+	setupLog.Info("setting up kraft clients")
 	kraftClients, err := clients.NewKraftClients(mgr.GetClient())
 	if err != nil {
 		return
 	}
 
-	flipperWatcher, flippers, err := controllers.NewFlipperWatcher(*kraftClients, cfgChan, stopFlipperChan)
-	go flipperWatcher.WatchConfigChange()
+	//setupLog.Info("setting up flipper watcher")
+	//flipperWatcher := controllers.NewFlipperWatcher(*kraftClients, cfgChan, stopFlipperChan)
 
-	deployments, err := controllers.NewDeploymentReconciler(kraftClients, mgr.GetScheme()).SetupWithManager(mgr)
+	setupLog.Info("setting up deployments manager")
+	err = controllers.NewDeploymentReconciler(kraftClients, mgr.GetClient(), mgr.GetScheme(), deplChan).SetupWithManager(mgr)
 	if err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deployment")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
 
+	setupLog.Info("setting up healthz check")
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
+	setupLog.Info("setting up readyz check")
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
-	go controllers.NewTimeTicker(&deployments, flippers, mgr.GetClient(), cfgChan, stopTimeTickrChan).Run()
+	flippers, err := kraftClients.ListFlippers()
+	setupLog.Info(fmt.Sprintf("flippers are: %#+v and error is: %s", flippers, err))
+	if err != nil {
+		setupLog.Error(err, "failed to list flippers")
+	}
 
-	setupLog.Info("starting manager")
+	deployments, err := kraftClients.ListDeployments()
+	if err != nil {
+		setupLog.Error(err, "failed to list deployments")
+	}
+
+	setupLog.Info(fmt.Sprintf("deployments are : %#+v", deployments))
+
+	setupLog.Info("starting ticker")
+	go func() {
+		err := controllers.NewTimeTicker(models.NewDeployments(&deployments, deplChan), flippers, kraftClients.GetKubeInternalClient(), cfgChan, stopTimeTickrChan, *cfg).Run()
+		if err != nil {
+			setupLog.Error(err, "failed to start ticker to restart deployments")
+			os.Exit(1)
+		}
+	}()
+
+	//setupLog.Info("waiting for flipper changes")
+	//go flipperWatcher.WatchConfigChange()
+
+	setupLog.Info("starting deployment controller manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

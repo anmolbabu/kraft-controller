@@ -29,9 +29,9 @@ var (
 	GroupVersion = schema.GroupVersion{Group: "flipper.flipper.io", Version: "v1alpha1"}
 
 	GroupVersionResource = schema.GroupVersionResource{
-		Group:    "flipper.io",
+		Group:    "flipper.flipper.io",
 		Version:  "v1alpha1",
-		Resource: "flipper",
+		Resource: "",
 	}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme

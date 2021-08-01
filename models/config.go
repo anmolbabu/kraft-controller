@@ -1,8 +1,12 @@
 package models
 
 import (
+	"context"
 	"fmt"
 	"github.com/anmolbabu/kraft-controller/api/v1alpha1"
+	"io/ioutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +32,18 @@ const (
 	Deleted ActionType = "deleted"
 	Updated ActionType = "updated"
 )
+
+func NewConfigFromFile() (*Config, error) {
+	contents, _ := ioutil.ReadFile("/etc/config/controller-config.yaml")
+
+	cfg := &Config{}
+	err := yaml.Unmarshal(contents, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
 
 func (cfg *Config) FromFlipperCRD(flipper v1alpha1.Flipper) {
 	cfg.KubeNamespace = flipper.Namespace
@@ -90,4 +106,7 @@ func (flMap *FlipperMap) Update(flipperChg FlipperChange) {
 		flMap.flipperMapNamespacedNameToKey[namespacedName] = flMapKey
 		flMap.flipperMapByNamespaceAndLabels[flMapKey] = &flipperChg.Flipper
 	}
+
+	logger := log.FromContext(context.Background())
+	logger.Info(fmt.Sprintf("the updated FlipperMap is: %#+v and new flipper Change is: %#+v", flMap, flipperChg))
 }

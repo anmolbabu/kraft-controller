@@ -34,7 +34,7 @@ type FlipperSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of Flipper. Edit flipper_types.go to remove/update
-	Interval string `json:"foo,omitempty"`
+	Interval string `json:"interval,omitempty"`
 	Match    `json:"match"`
 }
 

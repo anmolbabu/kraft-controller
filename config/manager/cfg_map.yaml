@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: controller-manager-config
+data:
+  controller-config.yaml: |-
+    interval: 20s
+    namespace: test
+    labels:
+      mesh: true

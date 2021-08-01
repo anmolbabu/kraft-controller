@@ -22,10 +22,12 @@ import (
 	"github.com/anmolbabu/kraft-controller/clients"
 	"github.com/anmolbabu/kraft-controller/models"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"time"
 )
 
 // DeploymentReconciler reconciles a Deployment object
@@ -36,16 +38,24 @@ type DeploymentReconciler struct {
 	deploymentChgs chan models.DeploymentAction
 }
 
-func NewDeploymentReconciler(kraftClients *clients.KraftClients, scheme *runtime.Scheme) *DeploymentReconciler {
+func NewDeploymentReconciler(kraftClients *clients.KraftClients, client client.Client, scheme *runtime.Scheme, deplyChgs chan models.DeploymentAction) *DeploymentReconciler {
 	return &DeploymentReconciler{
-		Clients: kraftClients,
-		Scheme:  scheme,
+		Client:         client,
+		Clients:        kraftClients,
+		Scheme:         scheme,
+		deploymentChgs: deplyChgs,
 	}
 }
 
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flippers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flipper,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flippers/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flipper/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flippers/finalizers,verbs=update
+//+kubebuilder:rbac:groups=flipper.flipper.io,resources=Flipper/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -60,16 +70,19 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	logger := log.FromContext(ctx)
 
 	// your logic here
-	logger.V(2).Info("processing: %#+v", req)
-
 	deplInChange := &appsv1.Deployment{}
-	err := r.Get(ctx, req.NamespacedName, deplInChange)
+	logger.Info(fmt.Sprintf("processing: %#+v and deplInChange: %#+v", req, deplInChange))
+
+	err := r.Client.Get(context.Background(), req.NamespacedName, deplInChange)
 	if err != nil {
 		logger.Error(err, "failed to fetch deployment with name: %s", req.NamespacedName)
 
-		r.deploymentChgs <- models.DeploymentAction{ActionType: models.Deleted, DeplInChg: appsv1.Deployment{}, NamespacedName: req.NamespacedName}
+		if errors.IsNotFound(err) {
+			r.deploymentChgs <- models.DeploymentAction{ActionType: models.Deleted, DeplInChg: appsv1.Deployment{}, NamespacedName: req.NamespacedName}
+			return ctrl.Result{}, nil
+		}
 
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	r.deploymentChgs <- models.DeploymentAction{ActionType: models.Updated, DeplInChg: *deplInChange, NamespacedName: req.NamespacedName}
@@ -78,20 +91,8 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DeploymentReconciler) SetupWithManager(mgr ctrl.Manager) (models.Deployments, error) {
-	deploymentsList := &appsv1.DeploymentList{}
-	err := r.List(context.Background(), deploymentsList)
-	if err != nil {
-		return models.Deployments{}, err
-	}
-
-	deployments := make(map[string]appsv1.Deployment)
-
-	for idx := 0; idx < len(deploymentsList.Items); idx++ {
-		(deployments)[fmt.Sprintf("%s.%s", deploymentsList.Items[idx].Namespace, deploymentsList.Items[idx].Name)] = deploymentsList.Items[idx]
-	}
-
-	return models.NewDeployments(deploymentsList.Items, r.deploymentChgs), ctrl.NewControllerManagedBy(mgr).
+func (r *DeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}).
 		Complete(r)
 }

@@ -2,13 +2,12 @@ package clients
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"github.com/anmolbabu/kraft-controller/api/v1alpha1"
 	"github.com/anmolbabu/kraft-controller/models"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
@@ -20,7 +19,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"time"
 )
@@ -28,26 +26,45 @@ import (
 // Clientset abstracts the cluster config loading both locally and on Kubernetes
 func InitKubeClient() (*kubernetes.Clientset, error) {
 	// Try to load in-cluster config
+	config, err := getKubeCfg()
+	if err != nil {
+		return nil, err
+	}
+
+	return kubernetes.NewForConfig(config)
+}
+
+func getKubeCfg() (*rest.Config, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		// Fall back to local config
 		config, err = clientcmd.BuildConfigFromFlags("", os.Getenv("HOME")+"/.kube/config")
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return kubernetes.NewForConfig(config)
+	return config, nil
 }
 
-func InitGenericInformer() (informers.GenericInformer, error) {
-	cfg := ctrl.GetConfigOrDie()
+func InitDynamicKubeClient() (dynamic.Interface, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		// Fall back to local config
+		cfg, err = clientcmd.BuildConfigFromFlags("", os.Getenv("HOME")+"/.kube/config")
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	dc, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("%w. failed to create informer", err)
 	}
 
+	return dc, nil
+}
+
+func InitGenericInformer(dc dynamic.Interface) (informers.GenericInformer, error) {
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dc, time.Second, corev1.NamespaceAll, nil)
 
 	informer := factory.ForResource(v1alpha1.GroupVersionResource)
@@ -55,12 +72,36 @@ func InitGenericInformer() (informers.GenericInformer, error) {
 	return informer, nil
 }
 
+func (kraftClients *KraftClients) ListDeployments() ([]appsv1.Deployment, error) {
+	deploymentsList, err := kraftClients.internalKubeClient.AppsV1().Deployments("").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return deploymentsList.Items, nil
+}
+
 func (kraftClients *KraftClients) ListFlippers() (*models.FlipperMap, error) {
 	flipperList := &v1alpha1.FlipperList{}
 
-	err := kraftClients.kubeClient.List(context.Background(), flipperList)
+	cfg := ctrl.GetConfigOrDie()
+
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("%w. failed to create informer", err)
+	}
+
+	unstructuredList, err := dc.Resource(v1alpha1.GroupVersionResource).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return &models.FlipperMap{}, fmt.Errorf("failed to list flippers. Error: %w", err)
+	}
+
+	err = runtime.DefaultUnstructuredConverter.
+		FromUnstructured(unstructuredList.UnstructuredContent(), flipperList)
+	if err != nil {
+		logger := log.FromContext(context.Background())
+		logger.Error(err, "failed to convert unstructured list: %#+v to flipper list", unstructuredList)
+		return &models.FlipperMap{}, fmt.Errorf("failed to convert unstructured list: %#+v to flipper list. Error: %w", unstructuredList, err)
 	}
 
 	flipperChgs := make([]models.FlipperChange, len(flipperList.Items))
@@ -109,28 +150,4 @@ func handleFlipperChange(obj interface{}, notifyFlipperChange chan models.Flippe
 	flipperCfg.FromFlipperCRD(*flipper)
 
 	notifyFlipperChange <- models.FlipperChange{Flipper: *flipperCfg, ActionType: action}
-}
-
-func (kraftClient *KraftClients) RestartDeployment(deployment appsv1.Deployment) error {
-	logger := log.FromContext(context.Background())
-
-	deploymentJSON, err := json.Marshal(deployment)
-	sum := sha256.Sum256([]byte(deploymentJSON))
-
-	patch := client.MergeFrom(deployment.DeepCopy())
-
-	annotations := deployment.Spec.Template.ObjectMeta.Annotations
-	if annotations == nil {
-		annotations = map[string]string{"updatedHash": string(sum[:])}
-	}
-
-	deployment.Spec.Template.ObjectMeta.Annotations = annotations
-
-	err = kraftClient.kubeClient.Patch(context.Background(), &deployment, patch)
-	if err != nil {
-		logger.Error(err, "failed to resrt the deployment %s in namespace %s", deployment.Name, deployment.Namespace)
-		return fmt.Errorf("%w. failed to resrt the deployment %s in namespace %s", err, deployment.Name, deployment.Namespace)
-	}
-
-	return nil
 }
